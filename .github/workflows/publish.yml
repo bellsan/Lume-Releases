@@ -32,10 +32,12 @@ jobs:
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft > /tmp/lume-draft 2>/dev/null; then
             if [[ $(cat /tmp/lume-draft) != true ]]; then
               echo "Release already published; will not overwrite."
-              exit 1
+              exit 0
             fi
           else
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title "Lume Pro $tag" --notes-file /tmp/lume-release-notes.md
           fi
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' | python3 -c 'import re,sys; versions=[tuple(map(int,x.strip().removeprefix("v").split("."))) for x in sys.stdin if re.fullmatch(r"v?\d+\.\d+\.\d+",x.strip())]; print(".".join(map(str,max(versions))) if versions else "")')
+          python3 -c 'import sys; v=lambda s: tuple(map(int,s.split("."))); assert not sys.argv[2] or v(sys.argv[1])>v(sys.argv[2]), "Release must be newer than the latest published version"' "$version" "$latest"
           gh release upload "$tag" "$archive" "/tmp/LumePro-$version.zip.sha256" --repo "$GITHUB_REPOSITORY" --clobber
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest
