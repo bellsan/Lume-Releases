@@ -44,10 +44,10 @@ jobs:
         working-directory: build-src/LumePro
         shell: pwsh
         run: |
-          $previous = Join-Path $env:RUNNER_TEMP 'LumePro-0.3.49.exe'
-          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/bellsan/Lume-Releases/releases/download/v0.3.49/LumePro-0.3.49-windows-x64.exe' -OutFile $previous
-          if ((Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'd470eee5832ce2311ff6567b56af431b9566d6d8ad50f93c0f657c686b3c2e53') { throw 'Previous release SHA-256 mismatch' }
-          python tools/smoke_exe.py dist/LumePro.exe $env:LUME_VERSION $previous 0.3.49
+          $previous = Join-Path $env:RUNNER_TEMP 'LumePro-0.3.50.exe'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/bellsan/Lume-Releases/releases/download/v0.3.50/LumePro-0.3.50-windows-x64.exe' -OutFile $previous
+          if ((Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'd94a149e2cb0bc604e6a406c9b8981800b403ac37e434bcf830d1e4eb779bbad') { throw 'Previous release SHA-256 mismatch' }
+          python tools/smoke_exe.py dist/LumePro.exe $env:LUME_VERSION $previous 0.3.50
       - name: Stage executable and checksum
         shell: pwsh
         run: |
