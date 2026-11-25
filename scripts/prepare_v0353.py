@@ -90,6 +90,7 @@ progress=r'''
 $script:progressForm = $null
 $script:progressLabel = $null
 $script:progressBar = $null
+$script:progressIcon = $null
 function Show-Progress([string]$message,[int]$value) {
     if (-not $c.show_ui) { return }
     try {
@@ -105,7 +106,7 @@ function Show-Progress([string]$message,[int]$value) {
             $script:progressForm.ShowInTaskbar = $true
             $script:progressForm.TopMost = $true
             $script:progressForm.BackColor = [Drawing.Color]::FromArgb(36,38,43)
-            try { $script:progressForm.Icon = [Drawing.Icon]::ExtractAssociatedIcon($target) } catch {}
+            try { if ($c.icon -and [IO.File]::Exists([string]$c.icon)) { $script:progressIcon = New-Object Drawing.Icon([string]$c.icon); $script:progressForm.Icon = $script:progressIcon } } catch {}
             $script:progressLabel = New-Object Windows.Forms.Label
             $script:progressLabel.SetBounds(22,18,396,48)
             $script:progressLabel.ForeColor = [Drawing.Color]::FromArgb(235,237,246)
@@ -148,8 +149,37 @@ frozen=replace(frozen,"    Remove-Item -LiteralPath $marker -Force -ErrorAction 
     Show-Progress '更新完了' 100
     Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue""")
 frozen=replace(frozen,"    $failed = $true\n    $failure", "    Show-Progress '更新に失敗しました。元のバージョンを復元しています…' 97\n    $failed = $true\n    $failure")
-frozen=replace(frozen,"    # Only clean files owned by this transaction.","    if ($script:progressForm) { try { $script:progressForm.Close(); $script:progressForm.Dispose() } catch {} }\n    # Only clean files owned by this transaction.")
+frozen=replace(frozen,"    # Only clean files owned by this transaction.","    if ($script:progressForm) { try { $script:progressForm.Close(); $script:progressForm.Dispose() } catch {} }\n    if ($script:progressIcon) { try { $script:progressIcon.Dispose() } catch {} }\n    # Only clean files owned by this transaction.")
 frozen=replace(frozen,"    if ($c.ready) { [IO.File]::WriteAllText([string]$c.ready,'ready') }\n    Show-Progress '更新の準備中… 現在のウィンドウを閉じています。' 95", "    Show-Progress '更新の準備中… 現在のウィンドウを閉じています。' 95\n    if ($c.ready) { [IO.File]::WriteAllText([string]$c.ready,'ready') }")
+# Load the progress icon from a separate ICO, never from the locked executable.
+frozen=replace(frozen,"    script=SCRIPT.replace('__CONFIG__',","""    # A progress window must not load the executable being replaced as an icon DLL.
+    try:
+        icon=Path(getattr(updater,'root',Path(__file__).resolve().parent.parent))/'app'/'lume-app-icon.ico'
+        copy=stage.parent/'progress-icon.ico'
+        copy.write_bytes(icon.read_bytes())
+        config['icon']=str(copy)
+    except OSError:pass
+    script=SCRIPT.replace('__CONFIG__',""")
+# Retry transient Explorer/Defender file locks without deleting the verified AppData backup.
+frozen=replace(frozen,"function Get-Hash([string]$p) {",r"""function Remove-UpdateTemp([string]$file) {
+    $until = [DateTime]::UtcNow.AddSeconds(12)
+    do {
+        try {
+            if ([IO.File]::Exists($file)) { [IO.File]::Delete($file) }
+            if (-not [IO.File]::Exists($file)) { return }
+        } catch {}
+        Pump-Progress
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $until)
+    [Console]::Error.WriteLine('Temporary file cleanup delayed: '+$file)
+}
+function Get-Hash([string]$p) {""")
+frozen=replace(frozen,"    # The new process must report the nonce from this launch, not stale status.","""    # The independent verified AppData backup is sufficient for rollback.
+    # Release the same-directory copy before the new shell icon refresh starts.
+    Remove-UpdateTemp $localBackup
+    # The new process must report the nonce from this launch, not stale status.""")
+frozen=replace(frozen,"            Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue","            Remove-UpdateTemp $file # Remove-Item -LiteralPath $file equivalent, with sharing retries")
+
 put('app/frozen_update.py',frozen)
 # Windows Explorer uses a different icon cache than the taskbar and native window.
 # Refresh exact EXE paths and only .lnk files which resolve to our executable.
@@ -272,6 +302,15 @@ smoke=replace(smoke,"        new_token=get(port,'/api/token')['token'];assert ne
         print('Updated native window and desktop icon refresh passed',flush=True)
         assert get(port,'/api/shutdown',new_token,{})['ok']
         wait_for(lambda:not (data/'desktop_session.json').exists(),30)""")
+# WebView2 may release profile files asynchronously after the window exits.
+# Use the existing strict cleanup retry for both native test profiles.
+first=smoke.index('@contextmanager\ndef released_profile():')
+last=smoke.index("with released_profile() as temp:",first)
+cleanup=smoke[first:last].replace("def released_profile():","def released_profile(prefix='lume-native-'):").replace("prefix='lume-native-'","prefix=prefix",1)
+# Keep the default argument intact, change only mkdtemp's argument.
+cleanup=smoke[first:last].replace("def released_profile():","def released_profile(prefix='lume-native-'):").replace("tempfile.mkdtemp(prefix='lume-native-')","tempfile.mkdtemp(prefix=prefix)")
+smoke=smoke[:first]+smoke[last:]
+smoke=replace(smoke,"with tempfile.TemporaryDirectory(prefix='lume-swap-') as temp:",cleanup+"with released_profile(prefix='lume-swap-') as temp:")
 put('tools/smoke_exe.py',smoke)
 
 put('RELEASE_NOTES_JA.md',"""## v0.3.53
