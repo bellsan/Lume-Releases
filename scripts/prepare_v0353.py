@@ -87,43 +87,43 @@ put('app/style.css',get('app/style.css')+"""
 # progress while the old process is being released and the replacement is starting.
 frozen=get('app/frozen_update.py')
 progress=r'''
-$progressForm = $null
-$progressLabel = $null
-$progressBar = $null
+$script:progressForm = $null
+$script:progressLabel = $null
+$script:progressBar = $null
 function Show-Progress([string]$message,[int]$value) {
     if (-not $c.show_ui) { return }
     try {
-        if (-not $progressForm) {
+        if (-not $script:progressForm) {
             Add-Type -AssemblyName System.Windows.Forms
             Add-Type -AssemblyName System.Drawing
             $script:progressForm = New-Object Windows.Forms.Form
-            $progressForm.Text = 'LUME / PRO'
-            $progressForm.ClientSize = New-Object Drawing.Size(440,136)
-            $progressForm.StartPosition = 'CenterScreen'
-            $progressForm.FormBorderStyle = 'FixedDialog'
-            $progressForm.ControlBox = $false
-            $progressForm.ShowInTaskbar = $true
-            $progressForm.TopMost = $true
-            $progressForm.BackColor = [Drawing.Color]::FromArgb(36,38,43)
-            try { $progressForm.Icon = [Drawing.Icon]::ExtractAssociatedIcon($target) } catch {}
+            $script:progressForm.Text = 'LUME / PRO'
+            $script:progressForm.ClientSize = New-Object Drawing.Size(440,136)
+            $script:progressForm.StartPosition = 'CenterScreen'
+            $script:progressForm.FormBorderStyle = 'FixedDialog'
+            $script:progressForm.ControlBox = $false
+            $script:progressForm.ShowInTaskbar = $true
+            $script:progressForm.TopMost = $true
+            $script:progressForm.BackColor = [Drawing.Color]::FromArgb(36,38,43)
+            try { $script:progressForm.Icon = [Drawing.Icon]::ExtractAssociatedIcon($target) } catch {}
             $script:progressLabel = New-Object Windows.Forms.Label
-            $progressLabel.SetBounds(22,18,396,48)
-            $progressLabel.ForeColor = [Drawing.Color]::FromArgb(235,237,246)
-            $progressLabel.Font = New-Object Drawing.Font('Yu Gothic UI',11)
-            $progressForm.Controls.Add($progressLabel)
+            $script:progressLabel.SetBounds(22,18,396,48)
+            $script:progressLabel.ForeColor = [Drawing.Color]::FromArgb(235,237,246)
+            $script:progressLabel.Font = New-Object Drawing.Font('Yu Gothic UI',11)
+            $script:progressForm.Controls.Add($script:progressLabel)
             $script:progressBar = New-Object Windows.Forms.ProgressBar
-            $progressBar.SetBounds(22,83,396,14)
-            $progressBar.Style = 'Continuous'
-            $progressForm.Controls.Add($progressBar)
-            $progressForm.Show()
+            $script:progressBar.SetBounds(22,83,396,14)
+            $script:progressBar.Style = 'Continuous'
+            $script:progressForm.Controls.Add($script:progressBar)
+            $script:progressForm.Show()
         }
-        $progressLabel.Text = $message
-        $progressBar.Value = [Math]::Max(0,[Math]::Min(100,$value))
+        $script:progressLabel.Text = $message
+        $script:progressBar.Value = [Math]::Max(0,[Math]::Min(100,$value))
         [Windows.Forms.Application]::DoEvents()
     } catch { [Console]::Error.WriteLine('Optional progress window: '+$_.Exception.Message) }
 }
 function Pump-Progress {
-    if ($progressForm) { try { [Windows.Forms.Application]::DoEvents() } catch {} }
+    if ($script:progressForm) { try { [Windows.Forms.Application]::DoEvents() } catch {} }
 }
 '''
 frozen=replace(frozen,"function Get-Hash([string]$p) {",progress+"\nfunction Get-Hash([string]$p) {")
@@ -148,7 +148,7 @@ frozen=replace(frozen,"    Remove-Item -LiteralPath $marker -Force -ErrorAction 
     Show-Progress '更新完了' 100
     Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue""")
 frozen=replace(frozen,"    $failed = $true\n    $failure", "    Show-Progress '更新に失敗しました。元のバージョンを復元しています…' 97\n    $failed = $true\n    $failure")
-frozen=replace(frozen,"    # Only clean files owned by this transaction.","    if ($progressForm) { try { $progressForm.Close(); $progressForm.Dispose() } catch {} }\n    # Only clean files owned by this transaction.")
+frozen=replace(frozen,"    # Only clean files owned by this transaction.","    if ($script:progressForm) { try { $script:progressForm.Close(); $script:progressForm.Dispose() } catch {} }\n    # Only clean files owned by this transaction.")
 frozen=replace(frozen,"    if ($c.ready) { [IO.File]::WriteAllText([string]$c.ready,'ready') }\n    Show-Progress '更新の準備中… 現在のウィンドウを閉じています。' 95", "    Show-Progress '更新の準備中… 現在のウィンドウを閉じています。' 95\n    if ($c.ready) { [IO.File]::WriteAllText([string]$c.ready,'ready') }")
 put('app/frozen_update.py',frozen)
 # Windows Explorer uses a different icon cache than the taskbar and native window.
@@ -235,6 +235,45 @@ for name in ('ui_game_mode.py','ui_workspace.py','ui_smoke.py'):
 preset=get('tests/ui_preset_menu.py').replace('window.confirm=()=>true;',"window.confirm=()=>{throw Error('Unexpected browser dialog')};")
 preset=replace(preset,"await page.locator('[data-preset-action=delete]').click();await page.wait_for_function", "await page.locator('[data-preset-action=delete]').click();await page.locator('#appConfirmAccept').click();await page.wait_for_function")
 put('tests/ui_preset_menu.py',preset)
+
+smoke=get('tools/smoke_exe.py')
+smoke=replace(smoke,"proc=subprocess.Popen([str(target),'--no-browser','--port',str(port)],env=env)","proc=subprocess.Popen([str(target),'--port',str(port)],env=env)")
+smoke=replace(smoke,"        (stage/'sha256.txt').write_text(digest,'ascii')","""        wait_for(lambda:get(port,'/api/native_ready',token)['ready'],90)
+        ui_marker=data/f'native-ui-{port}.json'
+        wait_for(lambda:json.loads(ui_marker.read_text('utf-8'))['hwnd'],90)
+        (stage/'sha256.txt').write_text(digest,'ascii')""")
+smoke=replace(smoke,"        assert get(port,'/api/shutdown',token,{})['ok'];assert proc.wait(timeout=45)==0","""        # The updater must have its own visible progress window before acknowledging.
+        import ctypes
+        from ctypes import wintypes
+        def helper_window():
+            result=[]
+            user=ctypes.windll.user32
+            cb=ctypes.WINFUNCTYPE(wintypes.BOOL,wintypes.HWND,wintypes.LPARAM)
+            @cb
+            def visit(hwnd,_):
+                pid=wintypes.DWORD()
+                user.GetWindowThreadProcessId(hwnd,ctypes.byref(pid))
+                if pid.value==ps.pid and user.IsWindowVisible(hwnd):
+                    title=ctypes.create_unicode_buffer(256)
+                    user.GetWindowTextW(hwnd,title,256)
+                    if title.value=='LUME / PRO':result.append(hwnd)
+                return True
+            user.EnumWindows(visit,0)
+            return bool(result)
+        assert wait_for(helper_window,10), 'Missing visible update handoff window'
+        print('Visible update handoff before old app exits passed',flush=True)
+        assert get(port,'/api/shutdown',token,{})['ok'];assert proc.wait(timeout=45)==0""")
+smoke=replace(smoke,"        new_token=get(port,'/api/token')['token'];assert new_token!=token\n        assert get(port,'/api/preferences',new_token)['preferences']['auto'] is False\n        assert get(port,'/api/shutdown',new_token,{})['ok']\n        wait_for(lambda:not (data/'desktop_session.json').exists(),30)","""        new_token=get(port,'/api/token')['token'];assert new_token!=token
+        assert get(port,'/api/preferences',new_token)['preferences']['auto'] is False
+        wait_for(lambda:get(port,'/api/native_ready',new_token)['ready'],90)
+        wait_for(lambda:json.loads(ui_marker.read_text('utf-8'))['hwnd'],90)
+        wait_for(lambda:(data/'icons'/('shell-'+version+'.json')).is_file(),30)
+        assert (data/'icons'/('LumePro-'+version+'.ico')).read_bytes()==(root/'app/lume-app-icon.ico').read_bytes()
+        print('Updated native window and desktop icon refresh passed',flush=True)
+        assert get(port,'/api/shutdown',new_token,{})['ok']
+        wait_for(lambda:not (data/'desktop_session.json').exists(),30)""")
+put('tools/smoke_exe.py',smoke)
+
 put('RELEASE_NOTES_JA.md',"""## v0.3.53
 - 確認ダイアログをLUME専用デザインに統一しました。
 - 更新の通知を「更新来てるよん」に変更しました。
