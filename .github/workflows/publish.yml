@@ -10,7 +10,92 @@ concurrency:
   group: lume-release
   cancel-in-progress: false
 jobs:
+  build-windows:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Verify and extract source
+        shell: pwsh
+        run: |
+          $m = Get-Content publish.json -Raw | ConvertFrom-Json
+          $version = $m.version
+          if ($version -notmatch '^\d+\.\d+\.\d+
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Verify and stage package
+        run: python3 scripts/validate_package.py
+      - uses: actions/download-artifact@v4
+        with:
+          name: lume-windows-x64
+          path: windows-release
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import json; print(json.load(open("publish.json"))["version"])')
+          tag="v$version"
+          archive="packages/LumePro-$version.zip"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft > /tmp/lume-draft 2>/dev/null; then
+            if [[ $(cat /tmp/lume-draft) != true ]]; then
+              echo "Release already published; will not overwrite."
+              exit 0
+            fi
+          else
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title "Lume Pro $tag" --notes-file /tmp/lume-release-notes.md
+          fi
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' | python3 -c 'import re,sys; versions=[tuple(map(int,x.strip().removeprefix("v").split("."))) for x in sys.stdin if re.fullmatch(r"v?\d+\.\d+\.\d+",x.strip())]; print(".".join(map(str,max(versions))) if versions else "")')
+          python3 -c 'import sys; v=lambda s: tuple(map(int,s.split("."))); assert not sys.argv[2] or v(sys.argv[1])>v(sys.argv[2]), "Release must be newer than the latest published version"' "$version" "$latest"
+          exe="LumePro-$version-windows-x64.exe"
+          (cd windows-release && sha256sum -c "$exe.sha256")
+          gh release upload "$tag" "$archive" "/tmp/LumePro-$version.zip.sha256" "windows-release/$exe" "windows-release/$exe.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+) { throw 'Invalid version' }
+          $archive = "packages/LumePro-$version.zip"
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $m.sha256) { throw 'Source SHA-256 mismatch' }
+          Expand-Archive -LiteralPath $archive -DestinationPath build-src
+          "LUME_VERSION=$version" >> $env:GITHUB_ENV
+      - name: Install build dependencies
+        working-directory: build-src/LumePro
+        run: python -m pip install --disable-pip-version-check -r requirements_build_windows.txt
+      - name: Build Windows x64 EXE
+        working-directory: build-src/LumePro
+        run: python tools/build_exe.py
+      - name: Test frozen application
+        working-directory: build-src/LumePro
+        run: python tools/smoke_exe.py dist/LumePro.exe $env:LUME_VERSION
+      - name: Stage executable and checksum
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path windows-release -Force
+          $name = "LumePro-$env:LUME_VERSION-windows-x64.exe"
+          Copy-Item -LiteralPath build-src/LumePro/dist/LumePro.exe -Destination "windows-release/$name"
+          $hash = (Get-FileHash -LiteralPath "windows-release/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $PWD "windows-release/$name.sha256"), "$hash  $name`n", [Text.UTF8Encoding]::new($false))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lume-windows-x64
+          path: windows-release/*
+          if-no-files-found: error
+          retention-days: 7
   publish:
+    needs: build-windows
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
