@@ -41,6 +41,8 @@ function askConfirm(message){
  return new Promise(resolve=>{
   const done=()=>{origin?.focus({preventScroll:true});resolve(d.returnValue==='accept')};
   d.addEventListener('close',done,{once:true});
+  d.oncancel=e=>{e.preventDefault();d.close('cancel')};
+  d.onkeydown=e=>e.stopPropagation();
   d.showModal();$('appConfirmCancel').focus();
  });
 }
@@ -147,6 +149,7 @@ frozen=replace(frozen,"    Remove-Item -LiteralPath $marker -Force -ErrorAction 
     Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue""")
 frozen=replace(frozen,"    $failed = $true\n    $failure", "    Show-Progress '更新に失敗しました。元のバージョンを復元しています…' 97\n    $failed = $true\n    $failure")
 frozen=replace(frozen,"    # Only clean files owned by this transaction.","    if ($progressForm) { try { $progressForm.Close(); $progressForm.Dispose() } catch {} }\n    # Only clean files owned by this transaction.")
+frozen=replace(frozen,"    if ($c.ready) { [IO.File]::WriteAllText([string]$c.ready,'ready') }\n    Show-Progress '更新の準備中… 現在のウィンドウを閉じています。' 95", "    Show-Progress '更新の準備中… 現在のウィンドウを閉じています。' 95\n    if ($c.ready) { [IO.File]::WriteAllText([string]$c.ready,'ready') }")
 put('app/frozen_update.py',frozen)
 # Windows Explorer uses a different icon cache than the taskbar and native window.
 # Refresh exact EXE paths and only .lnk files which resolve to our executable.
@@ -224,11 +227,14 @@ put('tests/ui_native_menu.py',test)
 put('tests/ui_update.py',get('tests/ui_update.py').replace('新しいバージョンがあります','更新来てるよん'))
 # Existing browser scripts that intentionally exercise successful confirmation need
 # to click the in-app dialog rather than overriding the browser's global confirm.
-for name in ('ui_game_mode.py','ui_workspace.py','ui_smoke.py','ui_preset_menu.py'):
+for name in ('ui_game_mode.py','ui_workspace.py','ui_smoke.py'):
     t=get('tests/'+name)
     if 'window.confirm=()=>true;' in t:
         t=t.replace('window.confirm=()=>true;',"window.confirm=()=>{throw Error('Unexpected browser dialog')};new MutationObserver(()=>{const d=document.getElementById('appConfirmDialog');if(d?.open)document.getElementById('appConfirmAccept').click()}).observe(document.documentElement,{attributes:true,subtree:true,attributeFilter:['open']});")
         put('tests/'+name,t)
+preset=get('tests/ui_preset_menu.py').replace('window.confirm=()=>true;',"window.confirm=()=>{throw Error('Unexpected browser dialog')};")
+preset=replace(preset,"await page.locator('[data-preset-action=delete]').click();await page.wait_for_function", "await page.locator('[data-preset-action=delete]').click();await page.locator('#appConfirmAccept').click();await page.wait_for_function")
+put('tests/ui_preset_menu.py',preset)
 put('RELEASE_NOTES_JA.md',"""## v0.3.53
 - 確認ダイアログをLUME専用デザインに統一しました。
 - 更新の通知を「更新来てるよん」に変更しました。

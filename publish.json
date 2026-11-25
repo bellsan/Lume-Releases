@@ -1,4 +1,6 @@
 {
-  "version": "0.3.52",
-  "sha256": "9adc7b7c946a243f99e9df7a298d2e5f9bcad3be935878536381aa0143cfe681"
+  "version": "0.3.53",
+  "source_generator": "scripts/prepare_v0353.py",
+  "base_version": "0.3.52",
+  "base_sha256": "9adc7b7c946a243f99e9df7a298d2e5f9bcad3be935878536381aa0143cfe681"
 }
