@@ -96,6 +96,10 @@ def drive_native_quit(info, proc):
 
 
 def main():
+    # Windows CI may use cp1252 even when the actual UI is Japanese.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(encoding='utf-8', errors='backslashreplace')
     path = Path(sys.argv[1]).resolve()
     sys.argv = [str(path), *sys.argv[2:]]
     source = path.read_text(encoding="utf-8")
