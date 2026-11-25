@@ -2,7 +2,7 @@ name: Publish Lume Pro
 on:
   push:
     branches: [main]
-    paths: [publish.json]
+    paths: [publish.json, .github/workflows/publish.yml]
   workflow_dispatch:
 permissions:
   contents: write
@@ -29,44 +29,7 @@ jobs:
         run: |
           $m = Get-Content publish.json -Raw | ConvertFrom-Json
           $version = $m.version
-          if ($version -notmatch '^\d+\.\d+\.\d+
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          persist-credentials: false
-      - name: Verify and stage package
-        run: python3 scripts/validate_package.py
-      - uses: actions/download-artifact@v4
-        with:
-          name: lume-windows-x64
-          path: windows-release
-      - name: Publish complete release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=$(python3 -c 'import json; print(json.load(open("publish.json"))["version"])')
-          tag="v$version"
-          archive="packages/LumePro-$version.zip"
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft > /tmp/lume-draft 2>/dev/null; then
-            if [[ $(cat /tmp/lume-draft) != true ]]; then
-              echo "Release already published; will not overwrite."
-              exit 0
-            fi
-          else
-            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --title "Lume Pro $tag" --notes-file /tmp/lume-release-notes.md
-          fi
-          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' | python3 -c 'import re,sys; versions=[tuple(map(int,x.strip().removeprefix("v").split("."))) for x in sys.stdin if re.fullmatch(r"v?\d+\.\d+\.\d+",x.strip())]; print(".".join(map(str,max(versions))) if versions else "")')
-          python3 -c 'import sys; v=lambda s: tuple(map(int,s.split("."))); assert not sys.argv[2] or v(sys.argv[1])>v(sys.argv[2]), "Release must be newer than the latest published version"' "$version" "$latest"
-          exe="LumePro-$version-windows-x64.exe"
-          (cd windows-release && sha256sum -c "$exe.sha256")
-          gh release upload "$tag" "$archive" "/tmp/LumePro-$version.zip.sha256" "windows-release/$exe" "windows-release/$exe.sha256" --repo "$GITHUB_REPOSITORY" --clobber
-          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest
-) { throw 'Invalid version' }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid version' }
           $archive = "packages/LumePro-$version.zip"
           if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $m.sha256) { throw 'Source SHA-256 mismatch' }
           Expand-Archive -LiteralPath $archive -DestinationPath build-src
@@ -105,6 +68,10 @@ jobs:
           persist-credentials: false
       - name: Verify and stage package
         run: python3 scripts/validate_package.py
+      - uses: actions/download-artifact@v4
+        with:
+          name: lume-windows-x64
+          path: windows-release
       - name: Publish complete release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -124,5 +91,7 @@ jobs:
           fi
           latest=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' | python3 -c 'import re,sys; versions=[tuple(map(int,x.strip().removeprefix("v").split("."))) for x in sys.stdin if re.fullmatch(r"v?\d+\.\d+\.\d+",x.strip())]; print(".".join(map(str,max(versions))) if versions else "")')
           python3 -c 'import sys; v=lambda s: tuple(map(int,s.split("."))); assert not sys.argv[2] or v(sys.argv[1])>v(sys.argv[2]), "Release must be newer than the latest published version"' "$version" "$latest"
-          gh release upload "$tag" "$archive" "/tmp/LumePro-$version.zip.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          exe="LumePro-$version-windows-x64.exe"
+          (cd windows-release && sha256sum -c "$exe.sha256")
+          gh release upload "$tag" "$archive" "/tmp/LumePro-$version.zip.sha256" "windows-release/$exe" "windows-release/$exe.sha256" --repo "$GITHUB_REPOSITORY" --clobber
           gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest
