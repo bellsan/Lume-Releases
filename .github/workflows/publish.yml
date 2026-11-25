@@ -2,7 +2,7 @@ name: Publish Lume Pro
 on:
   push:
     branches: [main]
-    paths: [publish.json, .github/workflows/publish.yml]
+    paths: [publish.json, .github/workflows/publish.yml, scripts/ci_native_smoke.py]
   workflow_dispatch:
 permissions:
   contents: write
@@ -47,7 +47,8 @@ jobs:
           $previous = Join-Path $env:RUNNER_TEMP 'LumePro-0.3.51.exe'
           Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/bellsan/Lume-Releases/releases/download/v0.3.51/LumePro-0.3.51-windows-x64.exe' -OutFile $previous
           if ((Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'df84dfd696970d658f42029a6c1dd247aba7d332fd6161ac7f1b9c03e976e6ec') { throw 'Previous release SHA-256 mismatch' }
-          python tools/smoke_exe.py dist/LumePro.exe $env:LUME_VERSION $previous 0.3.51
+          python -m pip install --disable-pip-version-check 'pywinauto==0.6.9'
+          python ../../scripts/ci_native_smoke.py tools/smoke_exe.py dist/LumePro.exe $env:LUME_VERSION $previous 0.3.51
       - name: Stage executable and checksum
         shell: pwsh
         run: |
