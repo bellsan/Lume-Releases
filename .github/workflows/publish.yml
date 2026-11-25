@@ -2,7 +2,7 @@ name: Publish Lume Pro
 on:
   push:
     branches: [main]
-    paths: [publish.json, .github/workflows/publish.yml, scripts/ci_native_smoke.py]
+    paths: [publish.json, .github/workflows/publish.yml, scripts/ci_native_smoke.py, scripts/prepare_v0353.py]
   workflow_dispatch:
 permissions:
   contents: write
@@ -10,6 +10,35 @@ concurrency:
   group: lume-release
   cancel-in-progress: false
 jobs:
+  source-regression:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate and unpack source
+        run: |
+          python scripts/prepare_v0353.py
+          python scripts/validate_package.py
+          python -m zipfile -e packages/LumePro-0.3.53.zip build-src
+      - name: Install source test dependencies
+        run: python -m pip install pytest numpy pillow playwright
+      - name: Source and browser regression tests
+        working-directory: build-src/LumePro
+        shell: bash
+        run: |
+          python -m pytest -q
+          node --check app/app.js
+          export CHROMIUM_PATH=$(command -v google-chrome || command -v chromium || true)
+          if [ -z "$CHROMIUM_PATH" ]; then python -m playwright install --with-deps chromium; export CHROMIUM_PATH=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()'); fi
+          python tests/ui_native_menu.py
+          python tests/ui_update.py
   build-windows:
     if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
@@ -24,6 +53,8 @@ jobs:
         with:
           python-version: '3.12'
           architecture: x64
+      - name: Generate and verify v0.3.53 source
+        run: python scripts/prepare_v0353.py
       - name: Verify and extract source
         shell: pwsh
         run: |
@@ -34,9 +65,25 @@ jobs:
           if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $m.sha256) { throw 'Source SHA-256 mismatch' }
           Expand-Archive -LiteralPath $archive -DestinationPath build-src
           "LUME_VERSION=$version" >> $env:GITHUB_ENV
-      - name: Install build dependencies
+      - name: Locate pip cache
+        id: pip-cache
+        shell: pwsh
+        run: |
+          $dir = python -m pip cache dir
+          "dir=$dir" >> $env:GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pip-cache.outputs.dir }}
+          key: lume-windows-pip-${{ hashFiles('build-src/LumePro/requirements_build_windows.txt') }}-py312
+          restore-keys: lume-windows-pip-
+      - name: Install build and test dependencies
         working-directory: build-src/LumePro
-        run: python -m pip install --disable-pip-version-check -r requirements_build_windows.txt
+        run: python -m pip install --disable-pip-version-check -r requirements_build_windows.txt pywinauto==0.6.9 pytest
+      - name: Validate source syntax
+        working-directory: build-src/LumePro
+        run: |
+          python -m compileall -q app tools
+          node --check app/app.js
       - name: Build Windows x64 EXE
         working-directory: build-src/LumePro
         run: python tools/build_exe.py
@@ -44,11 +91,10 @@ jobs:
         working-directory: build-src/LumePro
         shell: pwsh
         run: |
-          $previous = Join-Path $env:RUNNER_TEMP 'LumePro-0.3.51.exe'
-          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/bellsan/Lume-Releases/releases/download/v0.3.51/LumePro-0.3.51-windows-x64.exe' -OutFile $previous
-          if ((Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'df84dfd696970d658f42029a6c1dd247aba7d332fd6161ac7f1b9c03e976e6ec') { throw 'Previous release SHA-256 mismatch' }
-          python -m pip install --disable-pip-version-check 'pywinauto==0.6.9'
-          python ../../scripts/ci_native_smoke.py tools/smoke_exe.py dist/LumePro.exe $env:LUME_VERSION $previous 0.3.51
+          $previous = Join-Path $env:RUNNER_TEMP 'LumePro-0.3.52.exe'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/bellsan/Lume-Releases/releases/download/v0.3.52/LumePro-0.3.52-windows-x64.exe' -OutFile $previous
+          if ((Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'cf338a1c926f25a92e66b7dfcf9389a3e2d43365af45afff00811b42597dfae5') { throw 'Previous release SHA-256 mismatch' }
+          python ../../scripts/ci_native_smoke.py tools/smoke_exe.py dist/LumePro.exe $env:LUME_VERSION $previous 0.3.52
       - name: Stage executable and checksum
         shell: pwsh
         run: |
@@ -60,11 +106,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: lume-windows-x64
-          path: windows-release/*
+          path: |
+            windows-release/*
+            packages/LumePro-0.3.53.zip
+            publish.json
           if-no-files-found: error
           retention-days: 7
   publish:
-    needs: build-windows
+    needs: [build-windows, source-regression]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -72,12 +121,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Verify and stage package
-        run: python3 scripts/validate_package.py
       - uses: actions/download-artifact@v4
         with:
           name: lume-windows-x64
-          path: windows-release
+          path: .
+      - name: Verify and stage package
+        run: python3 scripts/validate_package.py
       - name: Publish complete release
         env:
           GH_TOKEN: ${{ github.token }}
