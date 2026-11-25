@@ -216,7 +216,7 @@ put('app/version.json',json.dumps(meta)+'\n')
 put('tests/test_v0320_channel.py',get('tests/test_v0320_channel.py').replace("'version':'0.3.52'","'version':'0.3.53'"))
 # Browser regressions actually interact with the new dialog, rather than overriding confirm().
 test=get('tests/ui_native_menu.py')
-test=replace(test,"window.confirm=()=>true","window.confirm=()=>{throw Error('Native browser confirmation is forbidden')}")
+test=replace(test,"window.confirm=()=>true","window.confirm=()=>{throw Error()}")
 test=replace(test,"await page.locator('#quitBtn').click();await page.wait_for_timeout(250)","""await page.locator('#quitBtn').click()
   await page.locator('#appConfirmDialog').wait_for(state='visible')
   await page.locator('#appConfirmCancel').click()
