@@ -49,7 +49,7 @@ edit('app/logitech.py',[
  ("     if s.target(4):break","     ready=bool(s.target(4));log.add('sdk_target_per_key',attempt=attempt+1,accepted=ready)\n     if ready:break"),
  ("self.saved=bool(s.save and s.save());self.device=s;","self.saved=bool(s.save and s.save());log.add('sdk_selected',saved_previous=self.saved);self.device=s;"),
  ("    code=getattr(exc,'winerror',None)","    code=getattr(exc,'winerror',None)\n    log.add('sdk_select_failed',winerror=code if type(code) is int else None)"),
- ("     try:self._write(f)\n     except Exception as exc:self.error='SDK送信失敗: '+str(exc)[:180];self.cache.clear()","     before=self.accepted\n     try:\n      self._write(f)\n      log.changed('sdk_frame_result',accepted=self.accepted>before,rejected=bool(self.failed),bitmap=self.output_mode=='bitmap',nonblack=any(v.lower()!='#000000' for v in f.values()))\n     except Exception as exc:\n      self.error='SDK送信失敗: '+str(exc)[:180];self.cache.clear();log.changed('sdk_write_exception',winerror=getattr(exc,'winerror',None))")
+ ("     try:self._write(f)\n     except Exception as exc:self.error='SDK送信失敗: '+str(exc)[:180];self.cache.clear()","     before=self.accepted\n     try:\n      self._write(f)\n      log.changed('sdk_frame_result',new_calls_accepted=self.accepted>before,rejected=bool(self.failed),bitmap=self.output_mode=='bitmap',nonblack=any(v.lower()!='#000000' for v in f.values()))\n     except Exception as exc:\n      self.error='SDK送信失敗: '+str(exc)[:180];self.cache.clear();log.changed('sdk_write_exception',winerror=getattr(exc,'winerror',None))")
 ])
 edit('app/server.py',[
  ('import pathlib\n','import pathlib\nimport platform\nfrom lighting_log import log\n'),
@@ -100,6 +100,21 @@ function setupEvents(){
  setupLightingLog();''')
 ])
 files['LumePro/app/style.css']+=b'\n#lightingLogText{display:block;width:100%;box-sizing:border-box;min-height:180px;resize:vertical;margin-top:10px;padding:10px;border:1px solid #484b52;border-radius:6px;background:#16181d;color:#e2e5ee;font:12px/1.6 Consolas,monospace;white-space:pre;}\n'
+# Exercise the new controls in the existing browser suite, with a mock API.
+edit('tests/ui_native_menu.py',[
+ ("  await page.locator('#quitBtn').click()\n  await page.locator('#appConfirmDialog').wait_for(state='visible')", """  await page.evaluate('''window.logCleared=false;const originalFetch=window.fetch;window.fetch=async(url,opts)=>{if(String(url)==='/api/lighting_log')return {ok:true,json:async()=>({snapshot:{version:'0.3.57'},events:logCleared?[]:[{event:'sdk_init',accepted:false}]})};return originalFetch(url,opts)};const originalPost=window.post;window.post=async(path,body)=>{if(path==='/api/lighting_log_clear'){window.logCleared=true;return {ok:true}}return originalPost(path,body)}''')
+  await page.locator('#lightingLogPanel summary').click()
+  await page.wait_for_function("document.getElementById('lightingLogText').value.includes('sdk_init')")
+  await page.locator('#lightingLogCopy').click()
+  await page.wait_for_function("document.getElementById('lightingLogStatus').textContent.includes('コピー')")
+  await page.locator('#lightingLogClear').click()
+  await page.wait_for_function("!document.getElementById('lightingLogText').value.includes('sdk_init')")
+  assert await page.evaluate('logCleared')
+  await page.locator('#lightingLogPanel summary').click()
+  await page.locator('#quitBtn').click()
+  await page.locator('#appConfirmDialog').wait_for(state='visible')""")
+])
+
 edit('tests/test_v0320_channel.py',[("'version':'0.3.56'","'version':'0.3.57'")])
 edit('tests/test_server.py',[
  ("'/api/status','/api/preferences','/api/token'","'/api/status','/api/preferences','/api/lighting_log','/api/token'"),
