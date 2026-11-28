@@ -2,7 +2,7 @@ name: Publish Lume Pro
 on:
   push:
     branches: [main]
-    paths: [publish.json, .github/workflows/publish.yml, scripts/ci_native_smoke.py, scripts/prepare_v0353.py, scripts/prepare_v0354.py]
+    paths: [publish.json, .github/workflows/publish.yml, scripts/ci_native_smoke.py, scripts/prepare_v0353.py, scripts/prepare_v0354.py, scripts/prepare_v0355.py]
   workflow_dispatch:
 permissions:
   contents: write
@@ -26,8 +26,9 @@ jobs:
         run: |
           python scripts/prepare_v0353.py
           python scripts/prepare_v0354.py
+          python scripts/prepare_v0355.py
           python scripts/validate_package.py
-          python -m zipfile -e packages/LumePro-0.3.54.zip build-src
+          python -m zipfile -e packages/LumePro-0.3.55.zip build-src
       - name: Install source test dependencies
         run: python -m pip install pytest numpy pillow playwright
       - name: Source and browser regression tests
@@ -54,10 +55,11 @@ jobs:
         with:
           python-version: '3.12'
           architecture: x64
-      - name: Generate and verify v0.3.54 source
+      - name: Generate and verify v0.3.55 source
         run: |
           python scripts/prepare_v0353.py
           python scripts/prepare_v0354.py
+          python scripts/prepare_v0355.py
       - name: Verify and extract source
         shell: pwsh
         run: |
@@ -94,10 +96,10 @@ jobs:
         working-directory: build-src/LumePro
         shell: pwsh
         run: |
-          $previous = Join-Path $env:RUNNER_TEMP 'LumePro-0.3.53.exe'
-          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/bellsan/Lume-Releases/releases/download/v0.3.53/LumePro-0.3.53-windows-x64.exe' -OutFile $previous
-          if ((Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash.ToLowerInvariant() -ne '769d91404930648e3cbd7471f7bd666e58b515cf270e717771ee52456a2cbf52') { throw 'Previous release SHA-256 mismatch' }
-          python ../../scripts/ci_native_smoke.py tools/smoke_exe.py dist/LumePro.exe $env:LUME_VERSION $previous 0.3.53
+          $previous = Join-Path $env:RUNNER_TEMP 'LumePro-0.3.54.exe'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/bellsan/Lume-Releases/releases/download/v0.3.54/LumePro-0.3.54-windows-x64.exe' -OutFile $previous
+          if ((Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash.ToLowerInvariant() -ne '929400d9728c27fd68e47ee8bc28692c8714e38378cea81d0573ff89592366fe') { throw 'Previous release SHA-256 mismatch' }
+          python ../../scripts/ci_native_smoke.py tools/smoke_exe.py dist/LumePro.exe $env:LUME_VERSION $previous 0.3.54
       - name: Stage executable and checksum
         shell: pwsh
         run: |
@@ -111,7 +113,7 @@ jobs:
           name: lume-windows-x64
           path: |
             windows-release/*
-            packages/LumePro-0.3.54.zip
+            packages/LumePro-0.3.55.zip
             publish.json
           if-no-files-found: error
           retention-days: 7
